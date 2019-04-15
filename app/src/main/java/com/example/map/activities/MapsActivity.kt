@@ -3,11 +3,14 @@ package com.example.map.activities
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.map.R
 import com.example.map.adapters.UserInfoWindowAdapter
 import com.example.map.consts.Config
+import com.example.map.models.User
 import com.example.map.presenter.MapsPresenter
+import com.example.map.utils.MapAction
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -16,10 +19,6 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
 
@@ -44,7 +43,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onMapReady(googleMap: GoogleMap) {
         setupMap(googleMap)
         setupUsersLocation()
-        handleLocationChanges();
+        handleLocationChanges()
     }
 
     override fun onDestroy() {
@@ -74,12 +73,16 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
         mAdapter = UserInfoWindowAdapter(this)
         mMap.setInfoWindowAdapter(UserInfoWindowAdapter(this))
         mMap.setOnMapClickListener { hideSystemUI() }
+        mPresenter.onError(action = object : MapAction<String> {
+            override fun call(message: String) {
+                Toast.makeText(this@MapsActivity, message, Toast.LENGTH_SHORT).show()
+        }
+        })
     }
 
     private fun setupUsersLocation() {
-        GlobalScope.launch(Dispatchers.IO) {
-            var users = mPresenter.authorize()
-            withContext(Dispatchers.Main) {
+        mPresenter.onAuthorize(action = object : MapAction<List<User>> {
+            override fun call(users: List<User>) {
                 for (user in users) {
                     val marker = mMap.addMarker(
                         MarkerOptions()
@@ -90,27 +93,21 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback {
                     mMarkers[user.id] = marker
                 }
             }
-        }
+        })
+
     }
 
-    //TODO mb hide logic to presenter
     private fun handleLocationChanges() {
-        GlobalScope.launch(Dispatchers.IO) {
-            while (true) {
-               val user = mPresenter.update();
-               if (user != null) {
-                   withContext(Dispatchers.Main) {
-                       val marker = mMarkers[user.id];
-                       marker!!.position = LatLng(user.lat, user.lon)
-                       if (marker.isInfoWindowShown) {
-                           marker.hideInfoWindow()
-                           marker.showInfoWindow()
-                       }
-
-                   }
-               }
+        mPresenter.onUpdate(action = object : MapAction<User> {
+            override fun call(user: User) {
+                val marker = mMarkers[user.id]
+                marker!!.position = LatLng(user.lat, user.lon)
+                if (marker.isInfoWindowShown) {
+                    marker.hideInfoWindow()
+                    marker.showInfoWindow()
+                }
             }
-        }
+        })
     }
 
 }

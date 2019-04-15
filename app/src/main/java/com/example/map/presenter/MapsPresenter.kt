@@ -1,10 +1,12 @@
 package com.example.map.presenter
 
-import android.text.TextUtils
 import androidx.annotation.Nullable
 import com.example.map.consts.Command
 import com.example.map.consts.Config
 import com.example.map.models.User
+import com.example.map.utils.MapAction
+import com.example.map.utils.MapException
+import com.example.map.utils.UsersParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -20,14 +22,70 @@ class MapsPresenter(server: String, port: Int) {
     private var mOut: DataOutputStream? = null
     private var mIn: BufferedReader? = null
     private var mUsers = ArrayList<User>()
-    private var mIsAuthorized = false;
+    private var mIsAuthorized = false
+
+    private var mOnError: MapAction<String>? = null
 
     init {
         GlobalScope.launch(Dispatchers.IO) {
-            mSocket = Socket(server, port);
+            mSocket = Socket(server, port)
             mOut = DataOutputStream(mSocket!!.getOutputStream())
             mIn = BufferedReader(InputStreamReader(mSocket!!.getInputStream()))
         }
+    }
+
+
+    fun closeConnection() {
+        if (mSocket != null) mSocket!!.close()
+        mIsAuthorized = false
+    }
+
+    fun onAuthorize(action: MapAction<List<User>>) {
+        GlobalScope.launch(Dispatchers.IO) {
+            val users = authorize()
+            withContext(Dispatchers.Main) {
+                action.call(users)
+            }
+        }
+    }
+
+    fun onUpdate(action: MapAction<User>) {
+        GlobalScope.launch(Dispatchers.IO) {
+            while (true) {
+                val user = update()
+                if (user != null) {
+                    withContext(Dispatchers.Main) {
+                        action.call(user)
+                    }
+                }
+            }
+        }
+    }
+
+    fun onError(action: MapAction<String>) {
+        mOnError = action
+    }
+
+    private suspend fun authorize(): List<User> {
+        var response = ""
+        try {
+            response = authorizeCommand()
+        } catch (e: SocketException) {
+            withContext(Dispatchers.Main) {
+                if (mOnError != null) mOnError!!.call(e.message!!)
+            }
+        }
+
+        if(response.startsWith(Command.USERLIST)) {
+            val usersString = response.replace(Command.USERLIST, "").trim()
+            try {
+                mUsers.addAll(UsersParser().parse(usersString))
+            } catch (e: MapException) {
+
+            }
+            mIsAuthorized = true
+        }
+        return mUsers;
     }
 
     private suspend fun authorizeCommand(): String {
@@ -37,35 +95,14 @@ class MapsPresenter(server: String, port: Int) {
         }
     }
 
-    fun closeConnection() {
-        if (mSocket != null) mSocket!!.close()
-        mIsAuthorized = false
-    }
-
-    suspend fun authorize(): List<User> {
-        var response = "";
-        try {
-            response = authorizeCommand()
-        } catch (e: SocketException) {
-            e.printStackTrace()
-        }
-
-        if(response.startsWith(Command.USERLIST)) {
-            val usersString = response.replace(Command.USERLIST, "").trim()
-            mUsers.addAll(parseUsers(usersString))
-            mIsAuthorized = true;
-        }
-        return mUsers;
-    }
-
-    @Nullable fun update(): User? {
+    @Nullable private fun update(): User? {
         if (!mIsAuthorized  || mSocket!!.isClosed) return null
         val response: String
         try {
             response = mIn!!.readLine()
         } catch (e: SocketException) {
             e.printStackTrace()
-            return null;
+            return null
         }
         println(response)
         if(response.startsWith(Command.UPDATE)) {
@@ -75,11 +112,11 @@ class MapsPresenter(server: String, port: Int) {
                 val id = u.get(0).toInt()
                 val lat = u.get(1).toDouble()
                 val lon = u.get(2).toDouble()
-                val user = getUser(id);
+                val user = getUser(id)
                 if (user != null) {
                     user.lat = lat
                     user.lon = lon
-                    return user;
+                    return user
                 }
             }
         }
@@ -92,33 +129,4 @@ class MapsPresenter(server: String, port: Int) {
         }
         return null;
     }
-
-    private fun parseUsers(usersString: String): List<User> {
-        val users = ArrayList<User>()
-        val usersStringList =  usersString.split(";").toList()
-        for (userString in usersStringList) {
-            if (TextUtils.isEmpty(userString)) continue
-            users.add(parseUser(userString))
-        }
-
-        return users;
-    }
-
-    /**
-     * 101,Jānis Bērziņš,http://someurl.jpg,56.9495677035,24.1064071655
-     */
-    private fun parseUser(userString: String): User {
-        val u = userString.split(",")
-        if (u.size == 5) {
-            val id = u.get(0).toInt()
-            val username = u.get(1)
-            val image = u.get(2)
-            val lon = u.get(3).toDouble()
-            val lat = u.get(4).toDouble()
-            return User(id, username, image, lon, lat)
-        }
-        //TODO MB custom exception
-        throw RuntimeException("Server Error")
-    }
-
 }
