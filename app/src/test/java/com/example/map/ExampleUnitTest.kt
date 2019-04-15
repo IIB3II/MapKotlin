@@ -11,13 +11,11 @@ import org.junit.Test
  * See [testing documentation](http://d.android.com/tools/testing).
  */
 class ExampleUnitTest {
-    @Test
-    fun addition_isCorrect() {
+    @Test fun addition_isCorrect() {
         assertEquals(4, 2 + 2)
     }
 
-    @Test
-    fun usersParserTest() {
+    @Test fun usersParserTest() {
         //val presenter = MapsPresenter("", 0)
         val presenter = MapsPresenter()
         val usersString = "11,Name1,http://someurl.jpg,56.9495677035,24.1064071655;12,Name2,http://someurl.jpg,56.9495677035,24.1064071655;"
